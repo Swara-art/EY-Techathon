@@ -1,37 +1,42 @@
-# app/db.py
-import os
+# db.py
 from motor.motor_asyncio import AsyncIOMotorClient
-from fastapi import FastAPI
+from dotenv import load_dotenv
+import os
 
-# 1️⃣ Set up database details
-MONGODB_URI = os.getenv(
-    "MONGODB_URI",
-    "mongodb+srv://apoorvmk457_db_user:sQzvLm8lwiMVLRoK@techathon.npghn3t.mongodb.net/"
-)
-DB_NAME = os.getenv("MONGODB_DB", "providers_db")
-COLL_NAME = os.getenv("MONGODB_COLLECTION", "providers")
-mongo_client: AsyncIOMotorClient | None = None
+load_dotenv()  # MUST be at the very top
 
-# 2️⃣ Connect to MongoDB
-async def connect_to_mongo(app: FastAPI):
-    global mongo_client
-    mongo_client = AsyncIOMotorClient(MONGODB_URI)
-    app.state.mongo = mongo_client
-    app.state.db = mongo_client[DB_NAME]
-    app.state.providers = app.state.db[COLL_NAME]
-    # create helpful indexes (for speed & avoiding duplicates)
-    await app.state.providers.create_index("npi", unique=True, sparse=True)
-    await app.state.providers.create_index(
-        [("name", 1), ("phone", 1), ("address", 1)], name="name_phone_address"
+# --- Step 2: Read environment variables ---
+MONGO_URI = os.getenv("MONGODB_URI")
+DB_NAME = os.getenv("MONGODB_DB")
+COLLECTION_NAME = os.getenv("MONGODB_COLLECTION")
+
+# --- Step 3: Safety check ---
+if not MONGO_URI or not DB_NAME or not COLLECTION_NAME:
+    raise ValueError(
+        "Please check your .env file: MONGODB_URI, MONGODB_DB, MONGODB_COLLECTION must be set"
     )
 
-# 3️⃣ Disconnect from MongoDB
-async def close_mongo(app: FastAPI):
-    global mongo_client
-    if mongo_client:
-        mongo_client.close()
-        mongo_client = None
+# --- Step 4: Initialize MongoDB client ---
+mongo_client = AsyncIOMotorClient(MONGO_URI)
+mongo_db = mongo_client[DB_NAME]
 
-# 4️⃣ Helper function to get the collection anywhere in code
-def get_collection(request):
-    return request.app.state.providers
+print(f"✅ Connected to MongoDB database: {DB_NAME}, collection: {COLLECTION_NAME}")
+
+# --- Step 5: Function to get collection ---
+def get_collection():
+    """
+    Returns the MongoDB collection object
+    """
+    return mongo_db[COLLECTION_NAME]
+
+# --- Optional startup/shutdown hooks for FastAPI ---
+async def connect_to_mongo():
+    try:
+        await mongo_client.admin.command("ping")
+        print("MongoDB connection successful")
+    except Exception as e:
+        print("MongoDB connection failed:", e)
+
+async def close_mongo():
+    mongo_client.close()
+    print("MongoDB connection closed")
