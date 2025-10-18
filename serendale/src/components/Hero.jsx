@@ -1,6 +1,7 @@
 
-export default function Hero()
- {
+import { Link } from 'react-router-dom'
+
+export default function Hero() {
   return (
     <section className="hero">
       <div className="hero-inner">
@@ -11,12 +12,19 @@ export default function Hero()
 
         </p>
         <div className="cta slide-up delay-4" style={{ gap: 16 }}>
-          <a className="pill-btn" href="#">
+          <Link className="pill-btn" to="/get-started">
             <span className="pill-avatar-ring">
               <span className="pill-avatar" />
             </span>
             <span className="pill-text">Get Started</span>
-          </a>
+
+            <span className="pill-arrow" aria-hidden>
+              <svg viewBox="0 0 24 24">
+                <path d="M6 18 L18 6" />
+                <path d="M9 6 H18 V15" />
+              </svg>
+            </span>
+          </Link>
         </div>
       </div>
     </section>

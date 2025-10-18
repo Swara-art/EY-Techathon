@@ -1,5 +1,5 @@
 export default function NavBar() {
-  const links = ['Smart Contracts', 'Services', 'Solutions', 'Roadmap', 'Whitepaper']
+  const links = ['Services', 'Case Studies', 'Blogs', 'About Us ', 'Contact Us']
   return (
     <header className="nav">
       <div className="container">
