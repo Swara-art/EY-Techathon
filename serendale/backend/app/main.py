@@ -1,32 +1,58 @@
-# app/main.py
 from fastapi import FastAPI
-from .db import connect_to_mongo, close_mongo
-from .routers import ingest  # ✅ If your folder name is routers
-# or use `.routes` if it’s inside routes instead
-from dotenv import load_dotenv
-load_dotenv()
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+import os
 
+# Load environment variables
+load_dotenv()
 
+# Import database functions AFTER loading .env
+from .db import connect_to_mongo, close_mongo
+from .routers import ingest
 
-app = FastAPI(title="Provider Ingest API")
+# Initialize FastAPI app
+app = FastAPI(
+    title=os.getenv("APP_NAME", "TechathonProject"),
+    version="1.0.0",
+    description="Techathon Project API"
+)
+
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # allow all origins (for testing)
+    allow_origins=["*"],  # Restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# include the routes
+# Include routers
 app.include_router(ingest.router)
 
-# connect to MongoDB when app starts
+# Startup event - connect to MongoDB
 @app.on_event("startup")
 async def startup_event():
-    await connect_to_mongo(app)
+    try:
+        await connect_to_mongo()
+        print("✅ Startup complete - MongoDB connected")
+    except Exception as e:
+        print(f"❌ Startup failed: {e}")
+        raise
 
-# close MongoDB when app shuts down
+# Shutdown event - close MongoDB connection
 @app.on_event("shutdown")
 async def shutdown_event():
-    await close_mongo(app)
+    try:
+        await close_mongo()
+        print("✅ Shutdown complete - MongoDB closed")
+    except Exception as e:
+        print(f"❌ Shutdown error: {e}")
+
+# Root endpoint for testing
+@app.get("/")
+async def root():
+    return {"message": "Welcome to Techathon API"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
