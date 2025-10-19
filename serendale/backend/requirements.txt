@@ -4,3 +4,4 @@ db
 routers
 motor
 python-multipart
+aiofiles
