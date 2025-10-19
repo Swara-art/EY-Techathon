@@ -571,7 +571,7 @@ async def upload_provider_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Failed to insert document: {e}")
 
     # --- run validation pipeline and save processed CSV ---
-    processed_path = target_dir / "updated_providers_with_validation.csv"
+    processed_path = target_dir / "output.csv"
     try:
         df = pd.read_csv(target_path)
         val(df)  # your big validator function modifies df in place and writes outputs
@@ -604,13 +604,13 @@ async def get_processed_data(stem: Optional[str] = Query(None)):
         folders = [
             (child.stat().st_mtime, child)
             for child in UPLOAD_ROOT.iterdir()
-            if child.is_dir() and (child / "updated_providers_with_validation.csv").exists()
+            if child.is_dir() and (child / "output.csv").exists()
         ]
         if not folders:
             return {"columns": [], "rows": []}
         folder = max(folders, key=lambda t: t[0])[1]
 
-    processed = folder / "updated_providers_with_validation.csv"
+    processed = folder / "output.csv"
     if not processed.exists():
         return {"columns": [], "rows": []}
 
@@ -633,16 +633,16 @@ async def download_processed_csv(stem: Optional[str] = Query(None)):
         folders = [
             (child.stat().st_mtime, child)
             for child in UPLOAD_ROOT.iterdir()
-            if child.is_dir() and (child / "updated_providers_with_validation.csv").exists()
+            if child.is_dir() and (child / "output.csv").exists()
         ]
         if not folders:
             raise HTTPException(status_code=404, detail="No processed files found")
         folder = max(folders, key=lambda t: t[0])[1]
 
-    processed = folder / "updated_providers_with_validation.csv"
+    processed = folder / "output.csv"
     if not processed.exists():
         raise HTTPException(status_code=404, detail="Processed CSV not found")
 
     return FileResponse(processed, media_type="text/csv",
-                        filename=f"{folder.name}_updated_providers_with_validation.csv")
+                        filename=f"{folder.name}_output.csv")
 
