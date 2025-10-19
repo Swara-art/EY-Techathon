@@ -1,73 +1,71 @@
-# ingest.py
-from fastapi import APIRouter, UploadFile, File, HTTPException, Request
+# backend/app/routers/ingest.py
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from pathlib import Path
 from ..db import get_collection
-import aiofiles
-import os
+import aiofiles, os
 
-router = APIRouter(
-    prefix="/ingest",
-    tags=["Ingest"]
-)
+router = APIRouter(prefix="/ingest", tags=["Ingest"])
 
-# Pantry location
-UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
+# ✅ Point to backend/app/uploads (routers -> app -> uploads)
+UPLOAD_ROOT = (Path(__file__).resolve().parents[1] / "uploads").resolve()
+UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+
+def _sanitize_filename(name: str) -> str:
+    safe = "".join(c for c in name if c.isalnum() or c in ("-", "_", ".", " ")).strip()
+    return safe or "file"
 
 @router.post("/providers")
-async def upload_provider_file(request: Request, file: UploadFile = File(...)):
-    """
-    1. Receives a file from the user (customer order)
-    2. Puts it in the right folder (pantry shelf based on type)
-    3. Records the file info in MongoDB (inventory book)
-    """
+async def upload_provider_file(file: UploadFile = File(...)):
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename missing")
 
-    # 1️⃣ Determine file type (like checking ingredient type)
-    file_type = Path(file.filename).suffix.lstrip(".")
-    if not file_type:
-        file_type = (file.content_type.split("/")[-1]) if file.content_type else "unknown"
+    original_name = _sanitize_filename(file.filename)
+    stem = Path(original_name).stem or "file"  # folder name under uploads
+    content_type = file.content_type or "application/octet-stream"
 
-    # 2️⃣ Ensure folder exists for that type (create shelf if missing)
-    folder = UPLOAD_DIR / file_type
-    folder.mkdir(parents=True, exist_ok=True)
+    # backend/app/uploads/<stem>/<original_name>
+    target_dir = (UPLOAD_ROOT / stem).resolve()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = (target_dir / original_name).resolve()
 
-    # 3️⃣ Save the file asynchronously (put ingredient on shelf carefully)
-    file_path = folder / file.filename
+    # keep writes inside UPLOAD_ROOT only
+    if UPLOAD_ROOT not in target_path.parents and UPLOAD_ROOT != target_path:
+        raise HTTPException(status_code=400, detail="Invalid file path")
+
+    # save file
     try:
-        async with aiofiles.open(file_path, "wb") as out_file:
+        async with aiofiles.open(target_path, "wb") as out:
             while True:
-                chunk = await file.read(1024 * 64)  # read in chunks
+                chunk = await file.read(1024 * 1024)
                 if not chunk:
                     break
-                await out_file.write(chunk)
+                await out.write(chunk)
     except Exception as e:
-        await file.close()
         raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
-    await file.close()
+    finally:
+        await file.close()
 
-    # 4️⃣ Insert metadata into MongoDB (write in inventory book)
+    # store minimal metadata in Mongo
     try:
-        collection = get_collection(request)  # pass request as your function expects
+        collection = get_collection()  # no args
+        rel_path = target_path.relative_to(UPLOAD_ROOT.parent).as_posix()  # backend/app/uploads/...
         doc = {
-            "filename": file.filename,
-            "filepath": str(file_path),
-            "filetype": file_type
+            "filename": original_name,
+            "filepath": rel_path,      # e.g., backend/app/uploads/output/output.csv
+            "filetype": content_type,  # MIME type
         }
-        print("Inserting doc:", doc)
         result = await collection.insert_one(doc)
-        print("Inserted ID:", result.inserted_id)
     except Exception as e:
-        # If DB fails, remove the saved file (undo inventory if we can't record it)
-        try:
-            os.remove(file_path)
-        except Exception:
-            pass
+        try: os.remove(target_path)
+        except Exception: pass
         raise HTTPException(status_code=500, detail=f"Failed to insert document: {e}")
 
-    # 5️⃣ Return success message to user
     return {
         "message": "File uploaded successfully",
         "id": str(result.inserted_id),
-        "filename": file.filename,
-        "path": str(file_path),
-        "type": file_type
+        "filename": original_name,
+        "path": rel_path,
+        "type": content_type
     }
+
+

@@ -1,6 +1,12 @@
 from motor.motor_asyncio import AsyncIOMotorClient
+from fastapi import APIRouter, UploadFile, File, HTTPException, status
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import os
+from typing import Dict, Any
+import aiofiles
+import hashlib
+from datetime import datetime
 from pathlib import Path
 
 # Load .env file - check multiple possible locations
