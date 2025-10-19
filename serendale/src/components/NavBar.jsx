@@ -12,9 +12,7 @@ export default function NavBar() {
           </ul>
         </nav>
         <div className="socials">
-          <span aria-hidden>●</span>
-          <span aria-hidden>●</span>
-          <span aria-hidden>●</span>
+         <button>Sign in</button>
         </div>
       </div>
     </header>

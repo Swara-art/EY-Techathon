@@ -174,29 +174,13 @@ export default function GetStarted() {
             {preview && (
               <pre className="file-preview"><code>{preview}</code></pre>
             )}
-            <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
-              <button
-                className="pill-btn"
-                onClick={handleContinue}
-                disabled={loading}
-              >
-                <span className="pill-text">{loading ? 'Uploading…' : 'Continue'}</span>
-              </button>
-              <button
-                className="pill-btn pill-btn--sm"
-                onClick={() => { setFileInfo(null); setSelectedFile(null); setPreview(''); setServerResp(null); setError(''); }}
-                disabled={loading}
-              >
-                <span className="pill-text">Clear</span>
-              </button>
-            </div>
-
-            {/* Server response preview */}
-            {serverResp && (
-              <div className="file-server-response" style={{ marginTop: 16 }}>
-                <pre className="file-preview"><code>{JSON.stringify(serverResp, null, 2)}</code></pre>
+            <Link to="/dashboard">
+              <div style={{ marginTop: 16 }}>
+                <button className="pill-btn">
+                  <span className="pill-text">Continue</span>
+                </button>
               </div>
-            )}
+            </Link>
           </div>
         )}
       </main>

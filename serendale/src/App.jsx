@@ -1,7 +1,7 @@
 import './App.css'
 import NavBar from './components/NavBar'
 import Hero from './components/Hero'
-import WaveGrid from "./components/WaveGrid";
+import CanvasMatrix from "./components/CanvasMatrix";
 
 export default function App() {
   return (
@@ -11,7 +11,7 @@ export default function App() {
       <NavBar />
       <Hero />
       </main>
-      <WaveGrid />
+      <CanvasMatrix />
     </div>
 
   )
