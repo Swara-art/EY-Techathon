@@ -1,14 +1,14 @@
 # backend/app/routers/ingest.py
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from pathlib import Path
+from fastapi.responses import FileResponse
 from ..db import get_collection
 import aiofiles, os
-import os, re, json, time, math, random, string, datetime as dt, textwrap
+import os, re, json, time, math, random, string, datetime as dt, textwrap, requests
 from pathlib import Path
 from dataclasses import dataclass
 import pandas as pd
 import numpy as np
-import requests, httpx
 from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -19,20 +19,19 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import IsolationForest
 from sklearn.model_selection import train_test_split
 import kagglehub
-import re, time, json, math, datetime, random
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import pandas as pd
-import requests
-from bs4 import BeautifulSoup
-from tenacity import retry, stop_after_attempt, wait_exponential
-from fake_useragent import UserAgent
 from io import BytesIO
+from bson import ObjectId
+from typing import List, Optional, Dict, Any
+
+
+
 router = APIRouter(prefix="/ingest", tags=["Ingest"])
 
 # ✅ Point to backend/app/uploads (routers -> app -> uploads)
 UPLOAD_ROOT = (Path(__file__).resolve().parents[1] / "uploads").resolve()
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
+
 def val(df):   
     BASE_DIR = Path(".")
     OUT_DIR = BASE_DIR / "provider_pipeline_outputs"
@@ -259,8 +258,9 @@ def val(df):
         }
     
     # ---- Main safe loop: update df in-place using .loc ----
-    if "df" not in globals():
-        raise RuntimeError("DataFrame variable `df` not found in the notebook. Load the dataset into `df` and re-run.")
+    if df is None or not isinstance(df, pd.DataFrame):
+        raise ValueError("val(df) expects a pandas DataFrame, got None or invalid type")
+
     
     # Make a safe copy (avoid modifying a view)
     df = df.copy(deep=True)
@@ -528,75 +528,121 @@ def _sanitize_filename(name: str) -> str:
 
 @router.post("/providers")
 async def upload_provider_file(file: UploadFile = File(...)):
+    # --- capture all metadata up front ---
     if not file.filename:
         raise HTTPException(status_code=400, detail="Filename missing")
 
     original_name = _sanitize_filename(file.filename)
-    stem = Path(original_name).stem or "file"  # folder name under uploads
+    stem = Path(original_name).stem or "file"
     content_type = file.content_type or "application/octet-stream"
-    contents = await file.read()              # bytes
 
-    # backend/app/uploads/<stem>/<original_name>
+    # destination folder
     target_dir = (UPLOAD_ROOT / stem).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = (target_dir / original_name).resolve()
 
-    # keep writes inside UPLOAD_ROOT only
     if UPLOAD_ROOT not in target_path.parents and UPLOAD_ROOT != target_path:
-        raise HTTPException(status_code=400, detail="Invalid file path")
+        raise HTTPException(status_code=400, detail="Invalid path")
 
-    # save file
+    # --- save uploaded file ---
     try:
         async with aiofiles.open(target_path, "wb") as out:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
+            while chunk := await file.read(1024 * 1024):
                 await out.write(chunk)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
     finally:
         await file.close()
-    
-    # store minimal metadata in Mongo
+
+    # --- insert into Mongo ---
+    rel_path = target_path.relative_to(UPLOAD_ROOT.parent).as_posix()
     try:
-        collection = get_collection()  # no args
-        rel_path = target_path.relative_to(UPLOAD_ROOT.parent).as_posix()  # backend/app/uploads/...
-        doc = {
+        collection = get_collection()
+        result = await collection.insert_one({
             "filename": original_name,
-            "filepath": rel_path,      # e.g., backend/app/uploads/output/output.csv
-            "filetype": content_type,  # MIME type
-        }
-        result = await collection.insert_one(doc)
-        #validate code
-             # Reset file pointer to start
-        await file.seek(0)
-        
-        # Try UTF-8 first
-        try:
-                df = pd.read_csv(BytesIO(await file.read()))
-        except UnicodeDecodeError:
-                # If UTF-8 fails, try with latin-1
-                await file.seek(0)
-                df = pd.read_csv(BytesIO(await file.read()), encoding='latin-1')
-            
-            # Reset index to ensure _orig_index exists
-        df = df.reset_index(drop=False).rename(columns={'index': '_orig_index'})
-            
-            # Pass DataFrame to validation function
-        val(df)
-        print("Validation completed successfully")
+            "filepath": rel_path,
+            "filetype": content_type,
+        })
     except Exception as e:
-        try: os.remove(target_path)
-        except Exception: pass
+        try:
+            os.remove(target_path)
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=f"Failed to insert document: {e}")
 
+    # --- run validation pipeline and save processed CSV ---
+    processed_path = target_dir / "updated_providers_with_validation.csv"
+    try:
+        df = pd.read_csv(target_path)
+        val(df)  # your big validator function modifies df in place and writes outputs
+        # ensure one canonical output for dashboard:
+        df.to_csv(processed_path, index=False)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Validation failed: {e}")
+
     return {
-        "message": "File uploaded successfully",
+        "message": "File uploaded and validated successfully",
         "id": str(result.inserted_id),
         "filename": original_name,
         "path": rel_path,
-        "type": content_type
+        "processed": processed_path.relative_to(UPLOAD_ROOT.parent).as_posix(),
+        "type": content_type,
     }
 
+
+@router.get("/data")
+async def get_processed_data(stem: Optional[str] = Query(None)):
+    """
+    Returns ALL columns and rows from the latest (or specified) processed CSV.
+    """
+    # pick folder
+    if stem:
+        folder = (UPLOAD_ROOT / stem).resolve()
+        if not folder.exists():
+            raise HTTPException(status_code=404, detail=f"Folder '{stem}' not found")
+    else:
+        folders = [
+            (child.stat().st_mtime, child)
+            for child in UPLOAD_ROOT.iterdir()
+            if child.is_dir() and (child / "updated_providers_with_validation.csv").exists()
+        ]
+        if not folders:
+            return {"columns": [], "rows": []}
+        folder = max(folders, key=lambda t: t[0])[1]
+
+    processed = folder / "updated_providers_with_validation.csv"
+    if not processed.exists():
+        return {"columns": [], "rows": []}
+
+    try:
+        df = pd.read_csv(processed).fillna("")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read processed CSV: {e}")
+
+    return {"columns": df.columns.tolist(), "rows": df.to_dict(orient="records"), "stem": folder.name}
+
+
+@router.get("/download")
+async def download_processed_csv(stem: Optional[str] = Query(None)):
+    """Download the processed CSV file (latest if no stem)."""
+    if stem:
+        folder = (UPLOAD_ROOT / stem).resolve()
+        if not folder.exists():
+            raise HTTPException(status_code=404, detail=f"Folder '{stem}' not found")
+    else:
+        folders = [
+            (child.stat().st_mtime, child)
+            for child in UPLOAD_ROOT.iterdir()
+            if child.is_dir() and (child / "updated_providers_with_validation.csv").exists()
+        ]
+        if not folders:
+            raise HTTPException(status_code=404, detail="No processed files found")
+        folder = max(folders, key=lambda t: t[0])[1]
+
+    processed = folder / "updated_providers_with_validation.csv"
+    if not processed.exists():
+        raise HTTPException(status_code=404, detail="Processed CSV not found")
+
+    return FileResponse(processed, media_type="text/csv",
+                        filename=f"{folder.name}_updated_providers_with_validation.csv")
 

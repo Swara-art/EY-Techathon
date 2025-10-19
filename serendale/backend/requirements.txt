@@ -1,7 +1,0 @@
-fastapi
-dotenv
-db
-routers
-motor
-python-multipart
-aiofiles
