@@ -33,6 +33,8 @@ We do **not replace** existing systems — we **bring them to life** by making p
 * ✅ Trustworthy
 
 At its core, Serendale uses **Agentic AI** to autonomously validate, enrich, and monitor healthcare provider data.
+
+Here are some images of website:
 ![WhatsApp Image 2025-12-17 at 22 50 36 (1)](https://github.com/user-attachments/assets/becbf9d8-42c0-4662-87e0-8586d16bafd1)
 
 ![WhatsApp Image 2025-12-17 at 22 50 37](https://github.com/user-attachments/assets/1b2b8aef-fdf9-4359-a9a9-cbce1b654d6e)
@@ -86,6 +88,9 @@ Serendale follows a **modular, scalable, and agent-driven architecture**:
 * **Database:** MongoDB
 
 AI agents are orchestrated through a central **AI Orchestrator** that ensures data accuracy and consistency.
+<img width="740" height="359" alt="Screenshot 2025-12-17 230330" src="https://github.com/user-attachments/assets/970c5e15-c39d-4cfa-815f-88fd1e729551" />
+
+
 
 ---
 
@@ -124,6 +129,9 @@ AI agents are orchestrated through a central **AI Orchestrator** that ensures da
 
 * MongoDB
 * Docker
+
+  <img width="733" height="460" alt="Screenshot 2025-12-17 230338" src="https://github.com/user-attachments/assets/12db244d-5ebc-47d8-be79-be059a219204" />
+
 
 ---
 
